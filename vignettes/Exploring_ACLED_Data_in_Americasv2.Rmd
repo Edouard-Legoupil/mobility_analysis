@@ -1,0 +1,180 @@
+---
+title: "Exploring ACLED Data in Latin Americas"
+author: "Vignette Author"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Exploring ACLED Data in Latin Americas}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.height=10, 
+  fig.width=10
+)
+
+knitr::opts_chunk$set(echo = TRUE)
+extrafont::loadfonts(quiet=TRUE)
+options(scipen = 999) # turn-off scientific notation like 1e+48
+
+
+# Installing the packages:
+
+packages <- c("dplyr","leaflet","htmltools","ggplot2",
+              "lubridate","qdap","tm","SnowballC","wordcloud","RColorBrewer",
+              "stringr","readr","tidyverse","plotly","memisc","dplyr","data.table")
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))
+}
+rm(packages)
+library(dplyr)
+library(leaflet)
+library(htmltools)
+library(ggplot2)
+library(lubridate)
+#library(qdap)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+library(unhcRstyle)
+
+
+library(stringr)
+library(readr)
+library(tidyverse)
+library(plotly)
+library(memisc)
+library(dplyr)
+library(data.table)
+library(unhcRstyle)
+
+
+```
+
+
+
+The dataset ACLED (Armed Conflict Location & Event Data Project) shows dates and locations of all reported political violence and protest events in over 60 developing countries. 
+
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# Importing the ACLED dataset:
+
+mainDir <- getwd()
+mainDirroot <- substring(mainDir, 0 , nchar(mainDir) - 10)
+
+acled.data <- read.csv(paste0(mainDirroot,"/data-raw/acled.csv"), sep=";")
+```
+
+
+
+```{r, message=FALSE, warning=FALSE, echo= FALSE}
+# For Column actor2, NA tells us that there was no second actor. So we can replace it with string "NONE"
+acled.data$actor1[is.na(acled.data$actor1)] <- "NONE"
+
+acled.data$inter1 <- as.character(acled.data$inter1)
+lut1 <- c("1" = "Government or mutinous force", "2" = "Rebel force",
+          "3" = "Political militia", "4" = "Ethnic militia",
+          "5" = "Rioters", "6" = "Protesters", "7" = "Civilians",
+          "8" = "Outside/external force")
+acled.data$inter1_lab <- lut1[acled.data$inter1]
+
+acled.data$interaction <-as.character(acled.data$interaction)
+lut3<-c("10" = "SOLE MILITARY ACTION", "11" = "MILITARY VERSUS MILITARY",
+        "12" = "MILITARY VERSUS REBELS", "13" = "MILITARY VERSUS POLITICAL MILITIA",
+        "14" = "MILITARY VERSUS COMMUNAL MILITIA", "15" = "MILITARY VERSUS RIOTERS",
+        "16" = "MILITARY VERSUS PROTESTERS", "17" = "MILITARY VERSUS CIVILIANS",
+        "18" = "MILITARY VERSUS OTHER", "20" = "SOLE REBEL ACTION ",
+        "22" = "REBELS VERSUS REBELS", "23" = "REBELS VERSUS POLITICAL MILIITA",
+        "24" = "REBELS VERSUS COMMUNAL MILITIA", "25" = "REBELS VERSUS RIOTERS",
+        "26" = "REBELS VERSUS PROTESTERS", "27" = "REBELS VERSUS CIVILIANS",
+        "28" = "REBELS VERSUS OTHERS", "30" = "SOLE POLITICAL MILITIA ACTION",
+        "33" = "POLITICAL MILITIA VERSUS POLITICAL MILITIA",
+        "34" = "POLITICAL MILITIA VERSUS COMMUNAL MILITIA",
+        "35" = "POLITICAL MILITIA VERSUS RIOTERS",
+        "36" = "POLITICAL MILITIA VERSUS PROTESTERS",
+        "37" = "POLITICAL MILITIA VERSUS CIVILIANS",
+        "38" = "POLITICAL MILITIA VERSUS OTHERS",
+        "40" = "SOLE COMMUNAL MILITIA ACTION",
+        "44" = "COMMUNAL MILITIA VERSUS COMMUNAL MILITIA",
+        "45" = "COMMUNAL MILITIA VERSUS RIOTERS",
+        "46" = "COMMUNAL MILITIA VERSUS PROTESTERS",
+        "47" = "COMMUNAL MILITIA VERSUS CIVILIANS",
+        "48" = "COMMUNAL MILITIA VERSUS OTHER","50" = "SOLE RIOTER ACTION",
+        "55" = "RIOTERS VERSUS RIOTERS", "56" = "RIOTERS VERSUS PROTESTERS",
+        "57" = "RIOTERS VERSUS CIVILIANS", "58" = "RIOTERS VERSUS OTHERS",
+        "60" = "SOLE PROTESTER ACTION", "66" = "PROTESTERS VERSUS PROTESTERS",
+        "67" = "PROTESTERS VERSUS CIVILIANS", "68" = "PROTESTERS VERSUS OTHER",
+        "70" = "SOLE CIVILIANS", "77" = "CIVILIANS VERSUS CIVILIANS",
+        "78" = "OTHER ACTOR VERSUS CIVILIANS", "80" = "SOLE OTHER ACTION",
+        "88" = "OTHERS VERSUS OTHERS")
+acled.data$interaction_lab <- lut3[acled.data$interaction]
+
+acled.data$fatcal[acled.data$fatalities <= 10] <- '0 to 10 fatalities'
+acled.data$fatcal[10 < acled.data$fatalities & acled.data$fatalities <= 50] <- '10 to 50 fatalities'
+acled.data$fatcal[50 < acled.data$fatalities & acled.data$fatalities  <= 100] <- '50 to 100 fatalities'
+acled.data$fatcal[acled.data$fatalities > 100] <- 'Over 100 fatalities'
+
+acled.data$event_date1 <-dmy(acled.data$event_date)
+acled.data$month <- month(acled.data$event_date1)
+acled.data$yearmonth <- format(as.Date(acled.data$event_date1), "%Y-%m")
+
+acled.data$quarter <- quarter(acled.data$event_date1)
+acled.data$yearquarter <- paste0(acled.data$year,"-", acled.data$quarter)
+```
+ 
+
+
+
+## Frequency Plot for Number of Conflicts
+
+```{r message=FALSE, warning=FALSE, paged.print=TRUE}
+
+events <- levels(as.factor(acled.data$event_type))
+for (l in events) {
+  #cat(l)
+  plot1 <-  acled.data %>%
+    filter(., event_type == l)  %>%
+    #filter(., region == "South America" )  %>%
+    filter(.,  country %in% c("Mexico", "Belize", "Honduras",  "Nicaragua", 
+                            "Guatemala", "El Salvador", "Costa Rica","Panama" , 
+                             "Colombia" , "Venezuela", "Guyana", "Suriname",
+                              "Ecuador" , "Bolivia", "Peru" ,  "Brazil",  
+                              "Chile", "Argentina", "Paraguay", "Uruguay"))  %>%
+    group_by(yearmonth , country)%>%
+    summarise(count=n(),
+              fatalities =  sum(fatalities))%>%
+    arrange(desc(count)) 
+
+  plot1$yearmonth <-  as.Date(paste(plot1$yearmonth,"-01",sep=""))
+  plot1$country <- factor(plot1$country, 
+                          levels = c("Mexico", "Belize", "Honduras",  "Nicaragua", 
+                            "Guatemala", "El Salvador", "Costa Rica","Panama" , 
+                             "Colombia" , "Venezuela", "Guyana", "Suriname",
+                              "Ecuador" , "Bolivia", "Peru" ,  "Brazil",  
+                              "Chile", "Argentina", "Paraguay", "Uruguay"))
+
+p <- ggplot(data = plot1) +
+    geom_bar(mapping = aes(x = yearmonth, y= count), 
+             stat = "identity",  color= unhcr_blue, fill = unhcr_blue) +
+    geom_line(mapping = aes(x = yearmonth, y= fatalities, group = 1),
+              color= unhcr_red, size = 2) +
+    scale_y_continuous(name = "Total Number of Conflicts", 
+                       labels = scales::comma ) + 
+    labs(title = paste0("Monitoring of events in relation with ",l),
+         subtitle = "Number of conflicts is blue bar, number of fatalities is red line",
+         caption = "Acled Data") +
+    facet_wrap(~ country, ncol = 4) +
+    unhcr_theme() +  
+    theme(#panel.grid.y = element_line(color = "#cbcbcb"), 
+      #panel.grid.x = element_blank(),
+      axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+  print(p)
+}
+```
+
